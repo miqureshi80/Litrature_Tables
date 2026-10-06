@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-900 text-slate-100">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Google NotebookLM Literature Table Prompt Generator</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- React & Babel -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Marked.js for rendering markdown tables in preview -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+              800: '#3730a3',
+              900: '#312e81',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+    /* Rendered Markdown Table Styles */
+    .markdown-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+      margin-bottom: 1rem;
+      font-size: 0.875rem;
+    }
+    .markdown-body th {
+      background-color: #1e293b;
+      color: #cbd5e1;
+      font-weight: 600;
+      text-align: left;
+      padding: 0.75rem 1rem;
+      border: 1px solid #334155;
+    }
+    .markdown-body td {
+      padding: 0.75rem 1rem;
+      border: 1px solid #334155;
+      color: #e2e8f0;
+    }
+    .markdown-body tr:nth-child(even) {
+      background-color: #0f172a;
+    }
+    .markdown-body tr:nth-child(odd) {
+      background-color: #1e293b;
+    }
+  </style>
+</head>
+<body class="h-full bg-slate-950 font-sans text-slate-100 antialiased selection:bg-indigo-500 selection:text-white">
+  <div id="root" class="h-full"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // Presets for default column combinations
+    const COLUMN_PRESETS = [
+      {
+        id: 'systematic',
+        name: 'Standard Systematic Review',
+        description: 'Comprehensive overview focusing on objectives, methodology, key findings, and limitations.',
+        icon: 'fa-book-open',
+        columns: ['author_year', 'title', 'objective', 'methodology', 'sample_size', 'key_findings', 'limitations']
+      },
+      {
+        id: 'empirical',
+        name: 'Empirical / Quantitative Focus',
+        description: 'Emphasizes variables, sample demographics, statistical methods, and quantitative outcomes.',
+        icon: 'fa-chart-column',
+        columns: ['author_year', 'title', 'variables', 'sample_size', 'analytical_methods', 'key_findings', 'statistical_significance', 'limitations']
+      },
+      {
+        id: 'qualitative',
+        name: 'Qualitative Focus',
+        description: 'Focuses on qualitative methodologies, themes identified, context, and theoretical alignment.',
+        icon: 'fa-comments',
+        columns: ['author_year', 'title', 'theoretical_framework', 'context_setting', 'data_collection', 'main_themes', 'practical_implications']
+      },
+      {
+        id: 'critique',
+        name: 'Critical Synthesis & Gaps',
+        description: 'Designed to highlight theoretical gaps, methodological flaws, and future research directions.',
+        icon: 'fa-magnifying-glass-chart',
+        columns: ['author_year', 'title', 'methodology', 'key_findings', 'strengths', 'limitations', 'gap_addressed', 'future_directions']
+      },
+      {
+        id: 'custom',
+        name: 'Custom Builder',
+        description: 'Start from scratch or customize every single column.',
+        icon: 'fa-sliders',
+        columns: ['author_year', 'title', 'key_findings']
+      }
+    ];
+
+    // Categorized list of recommended columns
+    const COLUMN_CATEGORIES = [
+      {
+        category: 'Basic & Citation Details (Recommended)',
+        icon: 'fa-asterisk',
+        color: 'text-amber-400',
+        items: [
+          { id: 'author_year', label: 'Author(s) & Year', desc: 'Full citations or lead authors and publication year.', defaultChecked: true },
+          { id: 'title', label: 'Paper Title', desc: 'Exact or brief title of the paper or source document.', defaultChecked: true },
+          { id: 'source_type', label: 'Source Type / Outlet', desc: 'Journal name, conference proceedings, or book chapter.', defaultChecked: false }
+        ]
+      },
+      {
+        category: 'Research Purpose & Framework',
+        icon: 'fa-bullseye',
+        color: 'text-indigo-400',
+        items: [
+          { id: 'objective', label: 'Study Objective / Questions', desc: 'Core research question or main objective of the study.', defaultChecked: true },
+          { id: 'theoretical_framework', label: 'Theoretical Framework / Model', desc: 'The underlying theories, paradigms, or conceptual models used.', defaultChecked: false },
+          { id: 'variables', label: 'Key Constructs / Variables', desc: 'Independent, dependent, mediating, or moderating variables.', defaultChecked: false },
+          { id: 'hypotheses', label: 'Hypotheses Tested', desc: 'Core hypotheses proposed in the study.', defaultChecked: false }
+        ]
+      },
+      {
+        category: 'Methodology & Data',
+        icon: 'fa-flask',
+        color: 'text-cyan-400',
+        items: [
+          { id: 'methodology', label: 'Methodology & Design', desc: 'Research design (e.g., Qualitative, RCT, Survey, Meta-analysis).', defaultChecked: true },
+          { id: 'sample_size', label: 'Sample Size & Demographics', desc: 'Participant count (N), demographic profile, or target population.', defaultChecked: true },
+          { id: 'data_collection', label: 'Data Collection Tools', desc: 'Instruments used (e.g., interviews, Likert surveys, archival data).', defaultChecked: false },
+          { id: 'analytical_methods', label: 'Analytical / Statistical Methods', desc: 'Data analysis techniques (e.g., SEM, Thematic Analysis, ANOVA).', defaultChecked: false },
+          { id: 'context_setting', label: 'Research Context & Geography', desc: 'Geographic location, sector, industry, or institutional context.', defaultChecked: false }
+        ]
+      },
+      {
+        category: 'Findings & Insights',
+        icon: 'fa-lightbulb',
+        color: 'text-emerald-400',
+        items: [
+          { id: 'key_findings', label: 'Main Findings / Results', desc: 'Primary empirical findings, answers to research questions.', defaultChecked: true },
+          { id: 'statistical_significance', label: 'Effect Sizes / Key Metrics', desc: 'Quantitative effect sizes, p-values, or correlation strengths.', defaultChecked: false },
+          { id: 'main_themes', label: 'Qualitative Themes', desc: 'Key qualitative themes or overarching conceptual groupings.', defaultChecked: false }
+        ]
+      },
+      {
+        category: 'Critical Evaluation & Future Scope',
+        icon: 'fa-shield-halved',
+        color: 'text-rose-400',
+        items: [
+          { id: 'limitations', label: 'Study Limitations & Biases', desc: 'Methodological weaknesses, sample constraints, potential biases.', defaultChecked: true },
+          { id: 'strengths', label: 'Core Strengths / Contributions', desc: 'What makes this study particularly robust or innovative.', defaultChecked: false },
+          { id: 'gap_addressed', label: 'Research Gap Identified / Addressed', desc: 'Specific knowledge gap the study attempts to bridge.', defaultChecked: false },
+          { id: 'practical_implications', label: 'Practical & Managerial Implications', desc: 'How practitioners or policymakers can apply these findings.', defaultChecked: false },
+          { id: 'future_directions', label: 'Suggested Future Research', desc: 'Open avenues and recommendations for future investigations.', defaultChecked: false },
+          { id: 'relevance', label: 'Relevance to My Study', desc: 'Specific connection to the researcher’s own project scope.', defaultChecked: false }
+        ]
+      }
+    ];
+
+    function App() {
+      // Navigation Tabs
+      const [activeTab, setActiveTab] = useState('builder'); // 'builder', 'tester', 'saved', 'guide'
+
+      // Column selection states
+      const [selectedColumns, setSelectedColumns] = useState(['author_year', 'title', 'objective', 'methodology', 'sample_size', 'key_findings', 'limitations']);
+      const [customColumns, setCustomColumns] = useState([]);
+      const [newCustomColumn, setNewCustomColumn] = useState('');
+      const [selectedPreset, setSelectedPreset] = useState('systematic');
+
+      // Prompt Customization Controls
+      const [researchTopic, setResearchTopic] = useState('');
+      const [researchQuestion, setResearchQuestion] = useState('');
+      const [targetNotebookSource, setTargetNotebookSource] = useState('Uploaded PDF Papers & Abstracts');
+      const [analyticalDepth, setAnalyticalDepth] = useState('Academic & Rigorous');
+      const [outputFormat, setOutputFormat] = useState('Markdown Table');
+      const [missingDataInstruction, setMissingDataInstruction] = useState("Write 'Not Reported' or 'N/A' if details are absent");
+      const [specialInstructions, setSpecialInstructions] = useState('Highlight conflicting findings or conflicting methodologies across studies where relevant.');
+
+      // Copy notification feedback
+      const [copied, setCopied] = useState(false);
+
+      // Prompt History / Saved
+      const [savedPrompts, setSavedPrompts] = useState(() => {
+        try {
+          const local = localStorage.getItem('nb_prompt_history');
+          return local ? JSON.parse(local) : [];
+        } catch (e) {
+          return [];
+        }
+      });
+
+      // Interactive Tester State
+      const [sampleText, setSampleText] = useState(`Paper 1:
+Title: Generative AI in Higher Education: A Systematic Review
+Authors: Smith, J., & Johnson, R. (2023)
+Objective: To investigate how university students utilize ChatGPT for literature reviews and essay writing.
+Methodology: Quantitative survey across 450 undergraduate students in computer science and humanities.
+Key Findings: 68% of students reported using LLMs for brainstorming, but 42% expressed concern over hallucinations. The study found a modest increase in initial draft speed by 35%.
+Limitations: Sample limited to a single institution in North America; self-reported survey data may introduce response bias.
+
+Paper 2:
+Title: Assessing Critical Thinking in the Age of Automated Writing
+Authors: Lee, C., Patel, M., & Zhao, X. (2024)
+Objective: Evaluate whether AI essay assistants degrade student critical evaluation skills over time.
+Methodology: Quasi-experimental design comparing 120 students using AI assistance versus a control group writing unassisted over 12 weeks.
+Key Findings: AI-assisted students produced higher structural coherence but scored lower on novel argument synthesis and deep source evaluation.
+Limitations: Short evaluation window (12 weeks); qualitative scoring subjected to inter-rater reliability variances.`);
+
+      const [geminiResult, setGeminiResult] = useState('');
+      const [isTesting, setIsTesting] = useState(false);
+      const [testError, setTestError] = useState('');
+
+      // Handle Preset Selection
+      const handlePresetChange = (presetId) => {
+        setSelectedPreset(presetId);
+        const presetObj = COLUMN_PRESETS.find(p => p.id === presetId);
+        if (presetObj && presetObj.id !== 'custom') {
+          setSelectedColumns(presetObj.columns);
+        }
+      };
+
+      // Toggle Column Selection
+      const toggleColumn = (colId) => {
+        setSelectedPreset('custom');
+        if (selectedColumns.includes(colId)) {
+          setSelectedColumns(selectedColumns.filter(id => id !== colId));
+        } else {
+          setSelectedColumns([...selectedColumns, colId]);
+        }
+      };
+
+      // Add Custom Column
+      const handleAddCustomColumn = (e) => {
+        e.preventDefault();
+        if (!newCustomColumn.trim()) return;
+        const cleanName = newCustomColumn.trim();
+        const customId = `custom_${Date.now()}`;
+        setCustomColumns([...customColumns, { id: customId, label: cleanName }]);
+        setSelectedColumns([...selectedColumns, customId]);
+        setNewCustomColumn('');
+        setSelectedPreset('custom');
+      };
+
+      // Remove Custom Column
+      const handleRemoveCustomColumn = (customId) => {
+        setCustomColumns(customColumns.filter(c => c.id !== customId));
+        setSelectedColumns(selectedColumns.filter(id => id !== customId));
+      };
+
+      // Helper to get human label for any column ID
+      const getColumnLabel = (colId) => {
+        for (const cat of COLUMN_CATEGORIES) {
+          const item = cat.items.find(i => i.id === colId);
+          if (item) return item.label;
+        }
+        const custom = customColumns.find(c => c.id === colId);
+        if (custom) return custom.label;
+        return colId;
+      };
+
+      // Construct the Google NotebookLM prompt dynamically
+      const generatePrompt = () => {
+        const columnNames = selectedColumns.map(id => getColumnLabel(id));
+        
+        let prompt = `You are a world-class academic research assistant and literature review expert. Your task is to analyze the uploaded documents in this Google Notebook and construct a rigorous, publication-ready Literature Review Table.\n\n`;
+
+        if (researchTopic.trim()) {
+          prompt += `Research Topic Focus: "${researchTopic.trim()}"\n`;
+        }
+        if (researchQuestion.trim()) {
+          prompt += `Primary Research Question: "${researchQuestion.trim()}"\n`;
+        }
+        prompt += `Analytical Tone & Depth: ${analyticalDepth}\n`;
+        prompt += `Target Sources: ${targetNotebookSource}\n\n`;
+
+        prompt += `### INSTRUCTIONS FOR LITERATURE REVIEW TABLE:\n`;
+        prompt += `1. Thoroughly review all relevant uploaded files, notes, and sources in this notebook.\n`;
+        prompt += `2. Create a clean, comprehensive ${outputFormat} containing exactly the following ${columnNames.length} columns (in this precise left-to-right order):\n\n`;
+
+        columnNames.forEach((col, idx) => {
+          prompt += `   ${idx + 1}. **${col}**\n`;
+        });
+
+        prompt += `\n### STRICT EXTRACTION RULES:\n`;
+        prompt += `- Grounding: Rely strictly on facts directly stated in the uploaded documents. Do not infer, extrapolate, or hallucinate.\n`;
+        prompt += `- Handling Missing Data: ${missingDataInstruction}.\n`;
+        prompt += `- Row Organization: Create one clear row per paper/study. Sort rows logically by publication year (chronological) or by primary thematic cluster.\n`;
+        prompt += `- Citations: Reference document names or lead author citations where applicable for complete traceability.\n`;
+
+        if (specialInstructions.trim()) {
+          prompt += `- Special Focus: ${specialInstructions.trim()}\n`;
+        }
+
+        prompt += `\nPlease generate the complete Literature Review Table now based on all attached notebook sources.`;
+
+        return prompt;
+      };
+
+      const currentPromptText = generatePrompt();
+
+      // Copy to Clipboard safely
+      const copyToClipboard = () => {
+        try {
+          if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(currentPromptText);
+          } else {
+            const textArea = document.createElement("textarea");
+            textArea.value = currentPromptText;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-999999px";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            document.execCommand('copy');
+            textArea.remove();
+          }
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2200);
+        } catch (err) {
+          console.error("Failed to copy:", err);
+        }
+      };
+
+      // Save prompt to local storage
+      const handleSavePrompt = () => {
+        const title = researchTopic ? `Lit Review: ${researchTopic}` : `Prompt (${selectedColumns.length} Columns)`;
+        const newEntry = {
+          id: Date.now(),
+          title: title,
+          date: new Date().toLocaleDateString(),
+          columnsCount: selectedColumns.length,
+          promptText: currentPromptText
+        };
+        const updated = [newEntry, ...savedPrompts];
+        setSavedPrompts(updated);
+        try {
+          localStorage.setItem('nb_prompt_history', JSON.stringify(updated));
+        } catch (e) {}
+      };
+
+      // Delete from saved prompts
+      const handleDeleteSaved = (id) => {
+        const updated = savedPrompts.filter(p => p.id !== id);
+        setSavedPrompts(updated);
+        try {
+          localStorage.setItem('nb_prompt_history', JSON.stringify(updated));
+        } catch (e) {}
+      };
+
+      // Execute test request to Gemini API
+      const runGeminiTest = async () => {
+        if (!sampleText.trim()) {
+          setTestError("Please enter some sample paper text or abstracts to test.");
+          return;
+        }
+
+        setIsTesting(true);
+        setTestError("");
+        setGeminiResult("");
+
+        const systemInstruction = "You are a specialized AI assistant generating literature review tables for academic researchers. Output clean, precise Markdown tables based solely on the provided user text.";
+
+        const userPayloadPrompt = `${currentPromptText}\n\n--- SOURCE TEXT TO ANALYZE ---\n${sampleText}`;
+
+        const apiKey = ""; // Canvas runtime automatically handles empty API key
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+        try {
+          const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: userPayloadPrompt }] }],
+              systemInstruction: { parts: [{ text: systemInstruction }] }
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`API error: status ${response.status}`);
+          }
+
+          const data = await response.json();
+          const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+          if (generatedText) {
+            setGeminiResult(generatedText);
+          } else {
+            setTestError("Received empty response from Gemini API.");
+          }
+        } catch (err) {
+          console.error("Gemini API Error:", err);
+          setTestError(`Error running prompt test: ${err.message}. Please check network or try again.`);
+        } finally {
+          setIsTesting(false);
+        }
+      };
+
+      return (
+        <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100">
+          {/* TOP NAVBAR */}
+          <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-30">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-brand-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                  <i className="fa-solid fa-book-journal-whills text-white text-lg"></i>
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h1 className="font-bold text-slate-100 text-lg leading-tight">NotebookLM Prompt Studio</h1>
+                    <span className="bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      Lit Review Edition
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 hidden sm:block">Craft optimized prompts to build structured Literature Review Tables in Google NotebookLM</p>
+                </div>
+              </div>
+
+              {/* NAVIGATION TABS */}
+              <nav className="flex items-center space-x-1 sm:space-x-2 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                <button
+                  onClick={() => setActiveTab('builder')}
+                  className={`px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all flex items-center space-x-2 ${
+                    activeTab === 'builder'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                  }`}
+                >
+                  <i className="fa-solid fa-wand-magic-sparkles"></i>
+                  <span>Prompt Builder</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('tester')}
+                  className={`px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all flex items-center space-x-2 ${
+                    activeTab === 'tester'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                  }`}
+                >
+                  <i className="fa-solid fa-flask-vial"></i>
+                  <span>Live Preview (Gemini)</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('saved')}
+                  className={`px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all flex items-center space-x-2 ${
+                    activeTab === 'saved'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                  }`}
+                >
+                  <i className="fa-solid fa-bookmark"></i>
+                  <span>Saved ({savedPrompts.length})</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('guide')}
+                  className={`px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all flex items-center space-x-2 ${
+                    activeTab === 'guide'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                  }`}
+                >
+                  <i className="fa-solid fa-circle-question"></i>
+                  <span className="hidden md:inline">NotebookLM Guide</span>
+                </button>
+              </nav>
+            </div>
+          </header>
+
+          {/* MAIN CONTENT CONTAINER */}
+          <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            {/* TAB 1: PROMPT BUILDER */}
+            {activeTab === 'builder' && (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                
+                {/* LEFT COLUMN: OPTIONS & COLUMN SELECTOR (7 Cols) */}
+                <div className="lg:col-span-7 space-x-0 space-y-6">
+                  
+                  {/* STEP 1: PRESET SELECTOR */}
+                  {}
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center space-x-2">
+                        <span className="w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-400 text-xs font-bold flex items-center justify-center border border-indigo-500/30">1</span>
+                        <h2 className="font-semibold text-slate-100 text-base">Select Literature Review Template Preset</h2>
+                      </div>
+                      <span className="text-xs text-slate-400">Quick Configuration</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {COLUMN_PRESETS.map((preset) => {
+                        const isSelected = selectedPreset === preset.id;
+                        return (
+                          <button
+                            key={preset.id}
+                            onClick={() => handlePresetChange(preset.id)}
+                            className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                              isSelected
+                                ? 'bg-indigo-950/50 border-indigo-500 ring-1 ring-indigo-500/50'
+                                : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-800/40'
+                            }`}
+                          >
+                            <div>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className={`text-sm font-semibold flex items-center space-x-2 ${isSelected ? 'text-indigo-300' : 'text-slate-200'}`}>
+                                  <i className={`fa-solid ${preset.icon} text-xs ${isSelected ? 'text-indigo-400' : 'text-slate-400'}`}></i>
+                                  <span>{preset.name}</span>
+                                </span>
+                                {isSelected && (
+                                  <i className="fa-solid fa-circle-check text-indigo-400 text-xs"></i>
+                                )}
+                              </div>
+                              <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">
+                                {preset.description}
+                              </p>
+                            </div>
+                            <div className="mt-3 text-[11px] font-mono text-slate-500">
+                              {preset.columns.length} Columns configured
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* STEP 2: COLUMN PICKER DROPDOWNS & CHECKBOXES */}
+                  {}
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-6">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+                      <div className="flex items-center space-x-2">
+                        <span className="w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-400 text-xs font-bold flex items-center justify-center border border-indigo-500/30">2</span>
+                        <div>
+                          <h2 className="font-semibold text-slate-100 text-base">Select Table Columns</h2>
+                          <p className="text-xs text-slate-400">Choose which columns to include in your literature table ({selectedColumns.length} selected)</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => {
+                            setSelectedColumns(['author_year', 'title', 'objective', 'methodology', 'key_findings']);
+                            setSelectedPreset('custom');
+                          }}
+                          className="text-xs text-slate-400 hover:text-indigo-400 transition"
+                        >
+                          Reset Default
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* CATEGORIZED COLUMNS */}
+                    <div className="space-y-5">
+                      {COLUMN_CATEGORIES.map((cat, catIdx) => (
+                        <div key={catIdx} className="space-y-2.5">
+                          <div className="flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                            <i className={`fa-solid ${cat.icon} ${cat.color}`}></i>
+                            <span>{cat.category}</span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {cat.items.map((item) => {
+                              const checked = selectedColumns.includes(item.id);
+                              return (
+                                <label
+                                  key={item.id}
+                                  className={`p-3 rounded-xl border text-xs cursor-pointer transition-all flex items-start space-x-3 ${
+                                    checked
+                                      ? 'bg-indigo-950/40 border-indigo-500/60 text-slate-100'
+                                      : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:bg-slate-800/30 hover:border-slate-700'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleColumn(item.id)}
+                                    className="mt-0.5 rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-900"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-medium text-slate-200">{item.label}</div>
+                                    <div className="text-[11px] text-slate-400 leading-tight mt-0.5">{item.desc}</div>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* CUSTOM COLUMN ADDER */}
+                      <div className="pt-2 border-t border-slate-800/80">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center space-x-2 mb-2">
+                          <i className="fa-solid fa-plus text-slate-400"></i>
+                          <span>Add Custom Table Column</span>
+                        </span>
+                        
+                        <form onSubmit={handleAddCustomColumn} className="flex space-x-2">
+                          <input
+                            type="text"
+                            placeholder="e.g. Theoretical Paradoxes, Ethical Approval, Sample Context..."
+                            value={newCustomColumn}
+                            onChange={(e) => setNewCustomColumn(e.target.value)}
+                            className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                          />
+                          <button
+                            type="submit"
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-medium transition flex items-center space-x-1.5"
+                          >
+                            <i className="fa-solid fa-plus text-xs"></i>
+                            <span>Add Column</span>
+                          </button>
+                        </form>
+
+                        {/* RENDERED CUSTOM COLUMNS */}
+                        {customColumns.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-3">
+                            {customColumns.map((col) => (
+                              <span
+                                key={col.id}
+                                className="inline-flex items-center space-x-1.5 bg-indigo-950/80 border border-indigo-500/50 text-indigo-200 text-xs px-2.5 py-1 rounded-lg"
+                              >
+                                <span>{col.label}</span>
+                                <button
+                                  onClick={() => handleRemoveCustomColumn(col.id)}
+                                  className="text-indigo-400 hover:text-indigo-100 ml-1"
+                                >
+                                  <i className="fa-solid fa-xmark text-xs"></i>
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* STEP 3: PROMPT CUSTOMIZATION & CONSTRAINTS */}
+                  {}
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+                    <div className="flex items-center space-x-2 border-b border-slate-800 pb-3">
+                      <span className="w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-400 text-xs font-bold flex items-center justify-center border border-indigo-500/30">3</span>
+                      <h2 className="font-semibold text-slate-100 text-base">Context & Analytical Constraints</h2>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-300 mb-1">Research Topic / Field</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Artificial Intelligence in Medical Diagnostics"
+                          value={researchTopic}
+                          onChange={(e) => setResearchTopic(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-slate-300 mb-1">Primary Research Question (Optional)</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. What are the key ethical and accuracy concerns?"
+                          value={researchQuestion}
+                          onChange={(e) => setResearchQuestion(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-slate-300 mb-1">Analytical Depth / Tone</label>
+                        <select
+                          value={analyticalDepth}
+                          onChange={(e) => setAnalyticalDepth(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                        >
+                          <option value="Academic & Rigorous">Academic & Rigorous (Standard Literature Review)</option>
+                          <option value="PhD Level / Deep Critical Synthesis">PhD Level / Deep Critical Synthesis</option>
+                          <option value="Executive & Practical Summary">Executive & Practical Summary</option>
+                          <option value="Undergraduate / Clear & Accessible">Undergraduate / Clear & Accessible</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-slate-300 mb-1">Output Format</label>
+                        <select
+                          value={outputFormat}
+                          onChange={(e) => setOutputFormat(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                        >
+                          <option value="Markdown Table">Markdown Table (Recommended for NotebookLM Note)</option>
+                          <option value="Markdown Table with Footnotes">Markdown Table with Footnotes</option>
+                          <option value="CSV Block inside Code Fence">CSV Block (For Excel / Google Sheets Export)</option>
+                        </select>
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-medium text-slate-300 mb-1">Missing Data Handling Rule</label>
+                        <input
+                          type="text"
+                          value={missingDataInstruction}
+                          onChange={(e) => setMissingDataInstruction(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-medium text-slate-300 mb-1">Special Analytical Focus / Instructions</label>
+                        <textarea
+                          rows={2}
+                          value={specialInstructions}
+                          onChange={(e) => setSpecialInstructions(e.target.value)}
+                          placeholder="e.g. Compare conflicting statistics between qualitative vs quantitative papers..."
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none resize-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* RIGHT COLUMN: GENERATED PROMPT OUTPUT CARD (5 Cols) */}
+                {}
+                <div className="lg:col-span-5 space-y-4 lg:sticky lg:top-20 self-start">
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between mb-3 border-b border-slate-800 pb-3">
+                        <div className="flex items-center space-x-2">
+                          <i className="fa-solid fa-square-poll-vertical text-indigo-400"></i>
+                          <h2 className="font-semibold text-slate-100 text-base">Generated Prompt</h2>
+                        </div>
+                        <span className="text-[11px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full font-mono">
+                          {selectedColumns.length} Columns
+                        </span>
+                      </div>
+
+                      {/* ORDERED COLUMNS CHIPS */}
+                      <div className="mb-4">
+                        <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                          Active Table Structure Order
+                        </label>
+                        <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
+                          {selectedColumns.map((colId, index) => (
+                            <span
+                              key={colId}
+                              className="text-[11px] bg-slate-950 border border-slate-800 text-slate-300 px-2 py-0.5 rounded-md flex items-center space-x-1"
+                            >
+                              <span className="text-indigo-400 font-bold">{index + 1}.</span>
+                              <span>{getColumnLabel(colId)}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* PROMPT TEXTAREA DISPLAY */}
+                      <div className="relative">
+                        <textarea
+                          readOnly
+                          value={currentPromptText}
+                          className="w-full h-80 bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono text-indigo-200 leading-relaxed focus:outline-none resize-none selection:bg-indigo-600"
+                        />
+                        <div className="absolute top-2 right-2 flex space-x-1">
+                          <button
+                            onClick={copyToClipboard}
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs px-2.5 py-1 rounded-lg transition flex items-center space-x-1"
+                            title="Copy to Clipboard"
+                          >
+                            <i className={`fa-solid ${copied ? 'fa-check text-emerald-400' : 'fa-copy'}`}></i>
+                            <span>{copied ? 'Copied!' : 'Copy'}</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ACTION BUTTONS */}
+                    <div className="mt-5 space-y-2.5">
+                      <button
+                        onClick={copyToClipboard}
+                        className="w-full py-3 bg-gradient-to-r from-indigo-600 to-brand-600 hover:from-indigo-500 hover:to-brand-500 text-white font-medium rounded-xl text-xs sm:text-sm shadow-lg shadow-indigo-600/25 transition flex items-center justify-center space-x-2"
+                      >
+                        <i className="fa-solid fa-copy"></i>
+                        <span>{copied ? 'Copied to Clipboard!' : 'Copy Prompt for Google NotebookLM'}</span>
+                      </button>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={handleSavePrompt}
+                          className="py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-xl text-xs font-medium transition flex items-center justify-center space-x-1.5"
+                        >
+                          <i className="fa-solid fa-bookmark text-indigo-400"></i>
+                          <span>Save to History</span>
+                        </button>
+
+                        <button
+                          onClick={() => setActiveTab('tester')}
+                          className="py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-xl text-xs font-medium transition flex items-center justify-center space-x-1.5"
+                        >
+                          <i className="fa-solid fa-vial-circle-check text-cyan-400"></i>
+                          <span>Test Prompt Live</span>
+                        </button>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* QUICK HINT CARD */}
+                  <div className="bg-indigo-950/30 border border-indigo-500/20 rounded-2xl p-4 text-xs text-indigo-300 flex items-start space-x-3">
+                    <i className="fa-solid fa-circle-info text-indigo-400 text-base mt-0.5"></i>
+                    <div>
+                      <p className="font-semibold text-indigo-200 mb-0.5">How to use in Google NotebookLM:</p>
+                      <p className="text-indigo-300/80 leading-relaxed">
+                        Open your Google NotebookLM notebook with uploaded papers/PDFs. Paste this prompt into the chat box at the bottom right. Click send to generate your complete Markdown Literature Review Table!
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+            {/* TAB 2: LIVE PROMPT TESTER (GEMINI INTEGRATION) */}
+            {}
+            {activeTab === 'tester' && (
+              <div className="space-y-6">
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm">
+                  <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-4">
+                    <div>
+                      <h2 className="font-semibold text-slate-100 text-lg flex items-center space-x-2">
+                        <i className="fa-solid fa-flask-vial text-indigo-400"></i>
+                        <span>Live Prompt Sandbox (Gemini 3 Flash)</span>
+                      </h2>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Test your generated prompt directly against sample text or abstracts before taking it into Google NotebookLM.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setActiveTab('builder')}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium transition flex items-center space-x-1.5"
+                    >
+                      <i className="fa-solid fa-sliders text-xs"></i>
+                      <span>Modify Prompt Columns</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* SAMPLE TEXT INPUT */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                          Sample Paper Text / Abstracts
+                        </label>
+                        <button
+                          onClick={() => setSampleText('')}
+                          className="text-[11px] text-slate-400 hover:text-slate-200"
+                        >
+                          Clear Text
+                        </button>
+                      </div>
+                      <textarea
+                        rows={12}
+                        value={sampleText}
+                        onChange={(e) => setSampleText(e.target.value)}
+                        placeholder="Paste text, abstracts, or notes from 1-3 research papers here..."
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 resize-none leading-relaxed"
+                      />
+                    </div>
+
+                    {/* PROMPT PREVIEW */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                        Active Generated Prompt
+                      </label>
+                      <textarea
+                        readOnly
+                        value={currentPromptText}
+                        className="w-full h-72 bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono text-indigo-300 opacity-90 resize-none focus:outline-none leading-relaxed"
+                      />
+                      
+                      <button
+                        onClick={runGeminiTest}
+                        disabled={isTesting}
+                        className={`w-full py-3 rounded-xl text-xs sm:text-sm font-semibold transition flex items-center justify-center space-x-2 ${
+                          isTesting
+                            ? 'bg-indigo-900/50 text-indigo-300 border border-indigo-700/50 cursor-wait'
+                            : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30'
+                        }`}
+                      >
+                        {isTesting ? (
+                          <>
+                            <i className="fa-solid fa-spinner fa-spin text-sm"></i>
+                            <span>Generating Literature Review Table...</span>
+                          </>
+                        ) : (
+                          <>
+                            <i className="fa-solid fa-play text-sm"></i>
+                            <span>Run Prompt Test with Gemini</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* ERROR DISPLAY */}
+                  {testError && (
+                    <div className="mt-4 p-3 bg-rose-950/50 border border-rose-500/50 rounded-xl text-rose-300 text-xs flex items-center space-x-2">
+                      <i className="fa-solid fa-triangle-exclamation text-rose-400"></i>
+                      <span>{testError}</span>
+                    </div>
+                  )}
+
+                  {/* RESULTS DISPLAY */}
+                  {geminiResult && (
+                    <div className="mt-6 border-t border-slate-800 pt-6">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-semibold text-slate-100 text-base flex items-center space-x-2">
+                          <i className="fa-solid fa-table text-emerald-400"></i>
+                          <span>Generated Literature Review Table</span>
+                        </h3>
+                        <button
+                          onClick={() => {
+                            if (navigator.clipboard) {
+                              navigator.clipboard.writeText(geminiResult);
+                              alert("Table markdown copied to clipboard!");
+                            }
+                          }}
+                          className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs transition flex items-center space-x-1"
+                        >
+                          <i className="fa-solid fa-copy"></i>
+                          <span>Copy Output</span>
+                        </button>
+                      </div>
+
+                      {/* RENDER MARKDOWN TABLE */}
+                      <div
+                        className="markdown-body bg-slate-950 border border-slate-800 rounded-xl p-4 overflow-x-auto text-slate-200"
+                        dangerouslySetInnerHTML={{ __html: window.marked ? window.marked.parse(geminiResult) : geminiResult }}
+                      />
+                    </div>
+                  )}
+
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: SAVED PROMPTS & HISTORY */}
+            {}
+            {activeTab === 'saved' && (
+              <div className="space-y-6">
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm">
+                  <div className="flex items-center justify-between mb-6 border-b border-slate-800 pb-4">
+                    <div>
+                      <h2 className="font-semibold text-slate-100 text-lg flex items-center space-x-2">
+                        <i className="fa-solid fa-bookmark text-indigo-400"></i>
+                        <span>Saved Prompt Library & History</span>
+                      </h2>
+                      <p className="text-xs text-slate-400 mt-1">Access your saved prompt configurations for future research projects.</p>
+                    </div>
+                    {savedPrompts.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setSavedPrompts([]);
+                          localStorage.removeItem('nb_prompt_history');
+                        }}
+                        className="text-xs text-rose-400 hover:text-rose-300 transition"
+                      >
+                        Clear All History
+                      </button>
+                    )}
+                  </div>
+
+                  {savedPrompts.length === 0 ? (
+                    <div className="text-center py-12 border border-dashed border-slate-800 rounded-xl">
+                      <i className="fa-regular fa-folder-open text-slate-600 text-4xl mb-3"></i>
+                      <p className="text-slate-300 text-sm font-medium">No saved prompts yet</p>
+                      <p className="text-slate-500 text-xs mt-1">Design a custom prompt in the builder and click "Save to History".</p>
+                      <button
+                        onClick={() => setActiveTab('builder')}
+                        className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-medium hover:bg-indigo-500 transition"
+                      >
+                        Go to Prompt Builder
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {savedPrompts.map((item) => (
+                        <div key={item.id} className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col justify-between space-y-3">
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <h3 className="font-semibold text-slate-200 text-sm">{item.title}</h3>
+                              <span className="text-[10px] text-slate-500 font-mono">{item.date}</span>
+                            </div>
+                            <p className="text-xs text-slate-400 font-mono bg-slate-900 border border-slate-800/80 rounded-lg p-2.5 line-clamp-4 leading-relaxed">
+                              {item.promptText}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-2 border-t border-slate-800/60">
+                            <span className="text-[11px] text-slate-400">
+                              <i className="fa-solid fa-columns text-indigo-400 mr-1"></i>
+                              {item.columnsCount} Columns
+                            </span>
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => {
+                                  if (navigator.clipboard) {
+                                    navigator.clipboard.writeText(item.promptText);
+                                    alert("Prompt copied to clipboard!");
+                                  }
+                                }}
+                                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition"
+                              >
+                                Copy
+                              </button>
+                              <button
+                                onClick={() => handleDeleteSaved(item.id)}
+                                className="p-1 text-slate-500 hover:text-rose-400 transition"
+                                title="Delete"
+                              >
+                                <i className="fa-solid fa-trash-can text-xs"></i>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* TAB 4: NOTEBOOKLM GUIDE */}
+            {}
+            {activeTab === 'guide' && (
+              <div className="space-y-6 max-w-4xl mx-auto">
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-6">
+                  <div className="border-b border-slate-800 pb-4">
+                    <h2 className="font-semibold text-slate-100 text-xl flex items-center space-x-2">
+                      <i className="fa-brands fa-google text-indigo-400"></i>
+                      <span>How to generate Literature Review Tables in Google NotebookLM</span>
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-1">Follow this step-by-step workflow to get high-precision tables grounded in your research papers.</p>
+                  </div>
+
+                  <div className="space-y-5 text-sm text-slate-300">
+                    <div className="flex items-start space-x-4 p-4 bg-slate-950 border border-slate-800 rounded-xl">
+                      <div className="w-8 h-8 rounded-full bg-indigo-600/20 text-indigo-400 font-bold flex items-center justify-center shrink-0 border border-indigo-500/30">
+                        1
+                      </div>
+                      <div className="space-y-1">
+                        <h3 className="font-semibold text-slate-100 text-base">Upload Your PDFs & Research Papers</h3>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          Open <a href="https://notebooklm.google.com" target="_blank" rel="noopener noreferrer" className="text-indigo-400 underline">Google NotebookLM</a>, create a new notebook, and upload your PDF files, Google Docs, or research paper abstracts into the source sidebar.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start space-x-4 p-4 bg-slate-950 border border-slate-800 rounded-xl">
+                      <div className="w-8 h-8 rounded-full bg-indigo-600/20 text-indigo-400 font-bold flex items-center justify-center shrink-0 border border-indigo-500/30">
+                        2
+                      </div>
+                      <div className="space-y-1">
+                        <h3 className="font-semibold text-slate-100 text-base">Build & Copy Your Customized Prompt</h3>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          Use the <strong>Prompt Builder</strong> tab in this app to select the specific columns required for your literature review (e.g., Methodology, Sample Size, Key Findings, Limitations). Click "Copy Prompt".
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start space-x-4 p-4 bg-slate-950 border border-slate-800 rounded-xl">
+                      <div className="w-8 h-8 rounded-full bg-indigo-600/20 text-indigo-400 font-bold flex items-center justify-center shrink-0 border border-indigo-500/30">
+                        3
+                      </div>
+                      <div className="space-y-1">
+                        <h3 className="font-semibold text-slate-100 text-base">Paste Prompt in NotebookLM Chat</h3>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          Paste your generated prompt into the Chat box at the bottom of NotebookLM. Ensure all target sources are checked in the sidebar so NotebookLM synthesizes across all documents simultaneously.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start space-x-4 p-4 bg-slate-950 border border-slate-800 rounded-xl">
+                      <div className="w-8 h-8 rounded-full bg-indigo-600/20 text-indigo-400 font-bold flex items-center justify-center shrink-0 border border-indigo-500/30">
+                        4
+                      </div>
+                      <div className="space-y-1">
+                        <h3 className="font-semibold text-slate-100 text-base">Save Output to NotebookLM Saved Notes</h3>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          Once NotebookLM generates the Markdown table, click "Save to Note" pin icon above the message. Your literature review table is now saved inside your Notebook studio for easy exporting to Google Docs or Markdown editors!
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* PRO TIPS BANNER */}
+                  <div className="bg-indigo-950/40 border border-indigo-500/30 rounded-xl p-4 text-xs text-indigo-200 space-y-2">
+                    <h4 className="font-bold text-indigo-100 text-sm flex items-center space-x-2">
+                      <i className="fa-solid fa-lightbulb text-amber-400"></i>
+                      <span>Pro Tips for Maximum Literature Review Quality</span>
+                    </h4>
+                    <ul className="list-disc list-inside space-y-1 text-indigo-300/90 leading-relaxed">
+                      <li>If NotebookLM truncates the table due to length, simply type <code>"Continue from paper [X]"</code> in the chat.</li>
+                      <li>For large reviews with 20+ papers, run the prompt on 5–7 sources at a time, then merge the table rows.</li>
+                      <li>Use the <strong>"Missing Data Rule"</strong> in Step 3 so NotebookLM does not guess unmentioned details.</li>
+                    </ul>
+                  </div>
+
+                </div>
+              </div>
+            )}
+          </main>
+
+          {/* FOOTER */}
+          <footer className="border-t border-slate-800 bg-slate-950 py-4 mt-8 text-center text-xs text-slate-500">
+            <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+              <p>Google NotebookLM Literature Table Prompt Generator &copy; 2026</p>
+              <p className="flex items-center space-x-2">
+                <span>Designed for Academics & Researchers</span>
+                <span>&bull;</span>
+                <span className="text-indigo-400">Powered by Gemini AI</span>
+              </p>
+            </div>
+          </footer>
+        </div>
+      );
+    }
+
+    const rootElement = document.getElementById('root');
+    const root = ReactDOM.createRoot(rootElement);
+    root.render(<App />);
+  </script>
+</body>
+</html>
